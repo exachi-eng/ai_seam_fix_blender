@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AI Seam-Fix Blender Pro v3.3</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    /* HUD通知ポップアップのアニメーション */
+    .hud-fade { animation: hudFade 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    @keyframes hudFade {
+      0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+      15% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      75% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(1.05); pointer-events: none; }
+    }
+    /* チェッカーボード背景 */
+    .checkerboard {
+      background-color: #1a1a1e;
+      background-image: 
+        linear-gradient(45deg, #242429 25%, transparent 25%), 
+        linear-gradient(-45deg, #242429 25%, transparent 25%), 
+        linear-gradient(45deg, transparent 75%, #242429 75%), 
+        linear-gradient(-45deg, transparent 75%, #242429 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #18181b; }
+    ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+    input[type=range] { accent-color: #3b82f6; }
+    
+    /* レイヤーアクティブ時のスタイル */
+    .layer-card.active { border-color: #3b82f6; background-color: rgba(59, 130, 246, 0.1); }
+    /* スポイトカーソル */
+    .cursor-eyedropper { cursor: crosshair; }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 h-screen w-screen overflow-hidden flex flex-col">
+<!-- ヘッダーバー -->
+<header class="h-12 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between px-4 z-20 shrink-0">
+<div class="flex items-center space-x-3">
+<div class="flex items-center space-x-2 text-blue-500 font-bold tracking-tight">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="text-sm font-semibold text-zinc-100">AI Seam-Fix Blender Pro v3.3</span>
+</div>
+<div class="h-4 w-px bg-zinc-700 mx-2"></div>
+<span class="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded border border-blue-500/30 font-medium" id="currentModeBadge">元画像マスク編集</span>
+</div>
+<!-- 上部アクションボタン -->
+<div class="flex items-center space-x-2">
+<button class="text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white px-2.5 py-1.5 rounded transition flex items-center gap-1.5 border border-zinc-700" id="btnLoadSample">
+<svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>サンプル読込</span>
+</button>
+<div class="h-4 w-px bg-zinc-800 mx-1"></div>
+<!-- アンドゥ・リドゥ -->
+<button class="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded disabled:opacity-30 disabled:pointer-events-none transition" id="btnUndo" title="取り消し (Ctrl+Z)">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M3 10h10a5 5 0 015 5v2M3 10l6-6m-6 6l6 6" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<button class="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded disabled:opacity-30 disabled:pointer-events-none transition" id="btnRedo" title="やり直し (Ctrl+Y / Ctrl+Shift+Z)">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M21 10H11a5 5 0 00-5 5v2m15-7l-6-6m6 6l-6 6" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<div class="h-4 w-px bg-zinc-800 mx-1"></div>
+<!-- エクスポートボタン -->
+<button class="text-xs bg-blue-600 hover:bg-blue-500 text-white font-medium px-3 py-1.5 rounded transition flex items-center gap-1.5 shadow-sm shadow-blue-500/20 active:scale-95 disabled:opacity-40 disabled:pointer-events-none" disabled="" id="btnExport">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>結合PNG書き出し (表示レイヤーのみ)</span>
+</button>
+</div>
+</header>
+<!-- プロパティサブバー -->
+<div class="h-10 bg-zinc-900/90 border-b border-zinc-800 flex items-center px-4 space-x-4 text-xs text-zinc-300 shrink-0 overflow-x-auto relative">
+<div class="flex items-center space-x-1.5 text-blue-400 font-medium shrink-0 min-w-[120px]">
+<span id="activeToolName">ブラシツール</span>
+</div>
+<div class="h-3.5 w-px bg-zinc-700 shrink-0"></div>
+<!-- 描画プロパティ -->
+<div class="flex items-center space-x-4 shrink-0 transition-opacity" id="toolProperties">
+<div class="flex items-center space-x-1.5">
+<label class="text-zinc-400">サイズ:</label>
+<input class="w-20 h-1 bg-zinc-700 rounded-lg cursor-pointer" id="brushSizeSlider" max="800" min="1" type="range" value="60"/>
+<span class="w-8 mono text-right" id="brushSizeVal">60px</span>
+</div>
+<div class="flex items-center space-x-1.5">
+<label class="text-zinc-400">不透明度:</label>
+<input class="w-20 h-1 bg-zinc-700 rounded-lg cursor-pointer" id="brushOpacitySlider" max="100" min="1" type="range" value="100"/>
+<span class="w-8 mono text-right" id="brushOpacityVal">100%</span>
+</div>
+<div class="flex items-center space-x-1.5">
+<label class="text-zinc-400">硬さ:</label>
+<input class="w-16 h-1 bg-zinc-700 rounded-lg cursor-pointer" id="brushHardnessSlider" max="100" min="0" type="range" value="30"/>
+</div>
+</div>
+<!-- 移動ツール専用プロパティ -->
+<div class="items-center space-x-3 hidden shrink-0" id="moveProperties">
+<span class="text-zinc-400">AI位置:</span>
+<div class="flex space-x-1 mono bg-zinc-800 px-1.5 py-0.5 rounded text-blue-400">
+<span id="offsetXVal">0</span>,<span id="offsetYVal">0</span>
+</div>
+<div class="flex items-center space-x-1">
+<span class="text-zinc-400 ml-2">倍率:</span>
+<input class="w-20 h-1 bg-zinc-700 rounded-lg cursor-pointer" id="aiScaleSlider" max="300" min="10" step="0.5" type="range" value="100"/>
+<span class="w-10 mono text-right text-emerald-400" id="aiScaleVal">100%</span>
+</div>
+<button class="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded ml-2" id="btnFitAiToBase">自動フィット</button>
+<button class="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-2 py-0.5 rounded border border-zinc-700" id="btnResetOffset">リセット</button>
+</div>
+<!-- 背景書き込み専用プロパティ (カラーパレット & スポイト) -->
+<div class="items-center space-x-3 hidden shrink-0" id="bgProperties">
+<div class="h-3.5 w-px bg-zinc-700"></div>
+<div class="flex items-center space-x-2 bg-indigo-900/40 px-2 py-1 rounded border border-indigo-500/30">
+<span class="text-indigo-300 font-medium flex items-center gap-1">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+          背景カラー:
+        </span>
+<input class="w-6 h-6 rounded cursor-pointer border-0 bg-transparent p-0" id="bgColorPicker" type="color" value="#000000"/>
+<!-- プリセットカラー -->
+<div class="flex space-x-1 ml-1">
+<button class="w-4 h-4 rounded-full bg-black border border-zinc-500 preset-color" data-color="#000000"></button>
+<button class="w-4 h-4 rounded-full bg-white border border-zinc-500 preset-color" data-color="#ffffff"></button>
+<button class="w-4 h-4 rounded-full bg-emerald-500 border border-zinc-500 preset-color" data-color="#10b981"></button>
+<button class="w-4 h-4 rounded-full bg-blue-500 border border-zinc-500 preset-color" data-color="#3b82f6"></button>
+</div>
+<div class="h-3.5 w-px bg-indigo-700/50 mx-1"></div>
+<!-- スポイトツール -->
+<button class="p-1 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition" id="toolEyedropper" title="スポイトツール (I)">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+</div>
+<div class="flex-1"></div>
+<!-- プレビューモード切り替え -->
+<div class="flex items-center space-x-3 shrink-0">
+<label class="flex items-center space-x-1.5 cursor-pointer text-zinc-300 hover:text-white" title="塗った範囲を赤色で可視化 (Q)">
+<input class="rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0" id="chkQuickMask" type="checkbox"/>
+<span>クイックマスク (Q)</span>
+</label>
+<label class="flex items-center space-x-1.5 cursor-pointer text-zinc-300 hover:text-white">
+<input class="rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0" id="chkOnionSkin" type="checkbox"/>
+<span>オニオンスキン</span>
+</label>
+<label class="flex items-center space-x-1.5 cursor-pointer text-zinc-300 hover:text-white">
+<input class="rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0" id="chkDifference" type="checkbox"/>
+<span>差分表示</span>
+</label>
+</div>
+</div>
+<div class="flex-1 flex overflow-hidden relative">
+<!-- 左ツールバー -->
+<aside class="w-12 bg-zinc-900 border-r border-zinc-800 flex flex-col items-center py-2.5 space-y-2 z-10 shrink-0">
+<button class="p-2.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition relative group" id="toolMove" title="移動 / 位置合わせ (V)">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M8 7l4-4m0 0l4 4m-4-4v18m0 0l-4-4m4 4l4-4M7 8l-4 4m0 0l4 4m-4-4h18m0 0l-4-4m4 4l-4 4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<button class="p-2.5 rounded-lg bg-blue-600 text-white transition relative group shadow-sm shadow-blue-500/20" id="toolBrush" title="透明化ブラシ：選択画像を透かす (B)">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<button class="p-2.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition relative group" id="toolSpray" title="スプレー (S)">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6zM18 4l2-2m-2 4h3m-4 5l3 2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<button class="p-2.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition relative group" id="toolEraser" title="表示復元ブラシ：透明度を戻す (E)">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 11H9m10 0a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2v-6a2 2 0 012-2m10 0V9a2 2 0 00-2-2M9 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v2M7 7h10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<button class="p-2.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition relative group" id="toolHand" title="手のひら (H / Space)">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<div class="w-6 h-px bg-zinc-800 my-1"></div>
+<button class="p-2.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 transition relative group" id="btnClearLayer" title="現在のレイヤーの描画を全消去">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</aside>
+<!-- 中央キャンバス領域 -->
+<main class="flex-1 checkerboard relative overflow-hidden flex items-center justify-center cursor-crosshair" id="canvasViewport">
+<canvas class="shadow-2xl border border-zinc-700/50 block" id="viewCanvas"></canvas>
+<!-- HUD通知 -->
+<div class="pointer-events-none fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-zinc-900/90 text-white border border-zinc-700 px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-md z-40 hidden flex items-center space-x-3" id="hudNotice">
+<span class="text-sm font-semibold tracking-wide" id="hudText">通知</span>
+</div>
+<!-- ブラシカーソル -->
+<div class="pointer-events-none fixed -top-100 -left-100 rounded-full border border-white/80 shadow-[0_0_2px_rgba(0,0,0,0.8)] transform -translate-x-1/2 -translate-y-1/2 z-30 hidden" id="brushCursor">
+<div class="w-full h-full rounded-full border border-dashed border-cyan-400/60 transform origin-center transition-all duration-75" id="brushCursorInner"></div>
+</div>
+<!-- 空状態 -->
+<div class="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm z-20 pointer-events-auto p-6" id="emptyNotice">
+<div class="max-w-md w-full bg-zinc-900 border border-zinc-800 rounded-xl p-6 shadow-2xl text-center space-y-4">
+<h2 class="text-base font-semibold text-zinc-100">画像を読み込んで開始</h2>
+<p class="text-xs text-zinc-400">右サイドバーの「下層」または「上層」レイヤーに画像をドロップしてください。</p>
+<button class="w-full py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition" id="btnQuickDemo">
+            テスト用サンプルを生成して体験する
+          </button>
+</div>
+</div>
+<!-- 下部ズーム・比較 -->
+<div class="absolute bottom-4 left-4 z-20 flex items-center space-x-2 bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-lg p-1.5 shadow-xl text-xs">
+<button class="p-1 hover:bg-zinc-800 rounded text-zinc-300" id="btnZoomOut"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M20 12H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg></button>
+<span class="mono px-1 min-w-[48px] text-center text-zinc-300" id="zoomPercent">100%</span>
+<button class="p-1 hover:bg-zinc-800 rounded text-zinc-300" id="btnZoomIn"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg></button>
+<div class="h-3 w-px bg-zinc-700 mx-1"></div>
+<button class="px-2 py-0.5 hover:bg-zinc-800 rounded text-zinc-400" id="btnZoomFit">フィット</button>
+<button class="px-2 py-0.5 hover:bg-zinc-800 rounded text-zinc-400" id="btnZoom100">100%</button>
+</div>
+<div class="absolute bottom-4 right-4 z-20">
+<button class="text-xs bg-zinc-900/90 backdrop-blur hover:bg-zinc-800 text-zinc-300 px-3 py-1.5 rounded-lg border border-zinc-700 shadow-xl transition flex items-center gap-1.5 select-none active:bg-blue-600 active:text-white" id="btnHoldCompare">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>押している間：元画像表示</span>
+</button>
+</div>
+</main>
+<!-- 右サイドバー（レイヤー構成） -->
+<aside class="w-72 bg-zinc-900 border-l border-zinc-800 flex flex-col z-10 shrink-0">
+<div class="p-3 border-b border-zinc-800">
+<h3 class="text-xs font-semibold text-zinc-300 uppercase tracking-wider">レイヤー構成</h3>
+</div>
+<div class="p-3 space-y-3 flex-1 overflow-y-auto" id="layerContainer">
+<!-- 上層: AI生成画像 -->
+
+<!-- 下層: 元画像 -->
+
+<!-- 背景レイヤー -->
+
+<div class="layer-card bg-zinc-800/80 border border-zinc-700 rounded-lg p-2.5 cursor-pointer transition relative active" id="layerBase" onclick="selectLayer('base')">
+<div class="flex items-center justify-between mb-2">
+<div class="flex items-center gap-2">
+<button class="text-zinc-400 hover:text-white visibility-toggle" data-layer="base" title="表示/非表示">
+<svg class="w-4 h-4 eye-icon" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<span class="text-xs font-medium text-blue-400 flex items-center gap-1.5">上層: 元画像（外周保持）</span>
+</div>
+<span class="text-[10px] bg-zinc-700 text-zinc-400 px-1.5 py-0.5 rounded" id="baseBadge">未読込</span>
+</div>
+<label class="block border border-dashed border-zinc-600 hover:border-blue-500 rounded p-1.5 text-center cursor-pointer transition bg-zinc-900/50" onclick="event.stopPropagation()">
+<input accept="image/*" class="hidden" id="fileBase" type="file"/>
+<div class="text-[10px] text-zinc-400">クリックして選択 / ドロップ</div>
+</label>
+</div><div class="layer-card bg-zinc-800/80 border border-zinc-700 rounded-lg p-2.5 cursor-pointer transition relative" id="layerAi" onclick="selectLayer('ai')">
+<div class="flex items-center justify-between mb-2">
+<div class="flex items-center gap-2">
+<button class="text-zinc-400 hover:text-white visibility-toggle" data-layer="ai" title="表示/非表示">
+<svg class="w-4 h-4 eye-icon" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<span class="text-xs font-medium text-emerald-400 flex items-center gap-1.5">中層: AI生成画像</span>
+</div>
+<span class="text-[10px] bg-zinc-700 text-zinc-400 px-1.5 py-0.5 rounded" id="aiBadge">未読込</span>
+</div>
+<label class="block border border-dashed border-zinc-600 hover:border-emerald-500 rounded p-1.5 text-center cursor-pointer transition bg-zinc-900/50" onclick="event.stopPropagation()">
+<input accept="image/*" class="hidden" id="fileAi" type="file"/>
+<div class="text-[10px] text-zinc-400">クリックして選択 / ドロップ</div>
+</label>
+</div><div class="layer-card bg-zinc-800/80 border border-zinc-700 rounded-lg p-2.5 cursor-pointer transition relative opacity-70" id="layerBg" onclick="selectLayer('bg')">
+<div class="flex items-center justify-between mb-1">
+<div class="flex items-center gap-2">
+<button class="text-zinc-500 hover:text-white visibility-toggle" data-layer="bg" title="表示/非表示">
+<svg class="w-4 h-4 eye-icon" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<span class="text-xs font-medium text-indigo-400 flex items-center gap-1.5">下層: 着色レイヤー</span>
+</div>
+<span class="text-[10px] text-zinc-500 bg-zinc-800 px-1 rounded">色調整用</span>
+</div>
+<div class="text-[9px] text-zinc-500 pl-6">
+            AI画像を透かした部分に見せる補正色を描きます
+          </div>
+</div><div class="bg-zinc-950/60 border border-zinc-800/80 rounded-lg p-3 text-[11px] space-y-2 text-zinc-400 mt-4">
+<div class="text-xs font-semibold text-zinc-300">ショートカット</div>
+<div class="grid grid-cols-2 gap-1.5 mono text-[10px]">
+<div><kbd class="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200">B</kbd> ブラシ</div>
+<div><kbd class="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200">S</kbd> スプレー</div>
+<div><kbd class="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200">E</kbd> 消しゴム</div>
+<div><kbd class="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200">I</kbd> スポイト</div>
+<div><kbd class="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200">V</kbd> 移動</div>
+<div><kbd class="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200">0-9</kbd> 不透明度</div>
+<div>[ 拡大 / ] 縮小</div>
+<div><kbd class="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200">Q</kbd> Qマスク</div>
+</div>
+</div>
+</div>
+<div class="p-2.5 bg-zinc-950 border-t border-zinc-800 text-[10px] text-zinc-500 flex justify-between items-center">
+<span>ステータス: <span class="text-zinc-400" id="statusMessage">画像待機中</span></span>
+</div>
+</aside>
+</div>
+<script>
+const $=id=>document.getElementById(id), state={base:null,ai:null,active:'base',tool:'brush',prev:'brush',visible:{base:true,ai:true,bg:true},size:60,opacity:1,hard:.3,color:'#ef4444',ox:0,oy:0,scale:1,zoom:1,px:0,py:0,drawing:false,panning:false,moving:false,space:false,lastX:0,lastY:0,sx:0,sy:0,hist:[],hi:-1,quick:false,onion:false,diff:false,hold:false};
+const vp=$('canvasViewport'),v=$('viewCanvas'),vc=v.getContext('2d'),bm=document.createElement('canvas'),am=document.createElement('canvas'),cc=document.createElement('canvas'),bmc=bm.getContext('2d'),amc=am.getContext('2d'),ccc=cc.getContext('2d'),cursor=$('brushCursor'),inner=$('brushCursorInner');
+function hud(t){$('hudText').textContent=t;$('hudNotice').classList.remove('hidden','hud-fade');void $('hudNotice').offsetWidth;$('hudNotice').classList.add('hud-fade');setTimeout(()=>$('hudNotice').classList.add('hidden'),1200)}
+function opaque(c){c.clearRect(0,0,c.canvas.width,c.canvas.height);c.fillStyle='#fff';c.fillRect(0,0,c.canvas.width,c.canvas.height)}
+function spaces(w,h){[bm,am,cc].forEach(x=>{x.width=w;x.height=h});opaque(bmc);opaque(amc);ccc.clearRect(0,0,w,h)}
+function copy(c){let n=document.createElement('canvas');n.width=c.width;n.height=c.height;n.getContext('2d').drawImage(c,0,0);return n}
+function save(){if(!state.base)return;state.hist=state.hist.slice(0,state.hi+1);state.hist.push({b:copy(bm),a:copy(am),c:copy(cc)});if(state.hist.length>25)state.hist.shift();else state.hi++;buttons()}
+function buttons(){$('btnUndo').disabled=state.hi<=0;$('btnRedo').disabled=state.hi>=state.hist.length-1}
+function restore(n){let h=state.hist[n];[[bmc,h.b],[amc,h.a],[ccc,h.c]].forEach(([x,y])=>{x.clearRect(0,0,x.canvas.width,x.canvas.height);x.drawImage(y,0,0)});render()}
+$('btnUndo').onclick=()=>{if(state.hi>0){restore(--state.hi);buttons()}};$('btnRedo').onclick=()=>{if(state.hi<state.hist.length-1){restore(++state.hi);buttons()}};
+function layer(id){state.active=id;document.querySelectorAll('.layer-card').forEach(x=>x.classList.remove('active'));$(`layer${id[0].toUpperCase()+id.slice(1)}`).classList.add('active');let col=id==='bg';$('bgProperties').classList.toggle('hidden',!col);$('bgProperties').classList.toggle('flex',col);$('currentModeBadge').textContent=col?'着色レイヤー編集':id==='base'?'元画像マスク編集':'AI画像マスク編集';tool(state.tool)}window.selectLayer=layer;
+const EYE_ON='<path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>',EYE_OFF='<path d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>';
+function eyeIcon(btn,on){btn.querySelector('.eye-icon').innerHTML=on?EYE_ON:EYE_OFF;btn.title=on?'表示中（クリックで非表示）':'非表示（クリックで表示）';btn.classList.toggle('text-zinc-600',!on)}
+document.querySelectorAll('.visibility-toggle').forEach(x=>x.onclick=e=>{e.stopPropagation();let id=x.dataset.layer;state.visible[id]=!state.visible[id];eyeIcon(x,state.visible[id]);$(`layer${id[0].toUpperCase()+id.slice(1)}`).classList.toggle('opacity-40',!state.visible[id]);render()});
+function tool(t){if(t==='eyedropper')state.prev=state.tool;state.tool=t;['Brush','Spray','Eraser','Move','Hand'].forEach(n=>{let b=$('tool'+n);if(b)b.className='p-2.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition relative group'});let b=$('tool'+t[0]?.toUpperCase()+t.slice(1));if(b)b.className='p-2.5 rounded-lg bg-blue-600 text-white transition relative group shadow-sm shadow-blue-500/20';let move=t==='move';$('toolProperties').classList.toggle('hidden',move||t==='hand'||t==='eyedropper');$('moveProperties').classList.toggle('hidden',!move);$('moveProperties').classList.toggle('flex',move);$('activeToolName').textContent=t==='brush'?(state.active==='bg'?'着色ブラシ':'透明化ブラシ'):t==='eraser'?(state.active==='bg'?'着色消しゴム':'表示復元ブラシ'):t==='eyedropper'?'スポイト（カラーピック）':t==='move'?'AI位置合わせ':t==='hand'?'手のひら':'スプレー';vp.style.cursor=move?'move':t==='hand'?'grab':t==='eyedropper'?'crosshair':'none'}
+['brush','spray','eraser','move','hand'].forEach(t=>$('tool'+t[0].toUpperCase()+t.slice(1)).onclick=()=>tool(t));$('toolEyedropper').onclick=()=>tool('eyedropper');
+function rgba(h,a){let n=parseInt(h.slice(1),16);return`rgba(${n>>16},${n>>8&255},${n&255},${a})`}
+function dab(x,y){let r=state.size/2,o=state.tool==='spray'?state.opacity*.2:state.opacity,g;if(state.active==='bg'){ccc.save();ccc.globalCompositeOperation=state.tool==='eraser'?'destination-out':'source-over';g=ccc.createRadialGradient(x,y,r*state.hard,x,y,r);g.addColorStop(0,rgba(state.color,o));g.addColorStop(1,rgba(state.color,0));ccc.fillStyle=g;ccc.beginPath();ccc.arc(x,y,r,0,7);ccc.fill();ccc.restore()}else{let c=state.active==='base'?bmc:amc;c.save();c.globalCompositeOperation=state.tool==='eraser'?'source-over':'destination-out';g=c.createRadialGradient(x,y,r*state.hard,x,y,r);g.addColorStop(0,`rgba(255,255,255,${o})`);g.addColorStop(1,'rgba(255,255,255,0)');c.fillStyle=g;c.beginPath();c.arc(x,y,r,0,7);c.fill();c.restore()}}
+function stroke(a,b,x,y){let d=Math.hypot(x-a,y-b),n=Math.max(1,Math.ceil(d/Math.max(1,state.size*.12)));for(let i=1;i<=n;i++)dab(a+(x-a)*i/n,b+(y-b)*i/n)}
+function pos(e){let r=v.getBoundingClientRect();return{x:(e.clientX-r.left)*v.width/r.width,y:(e.clientY-r.top)*v.height/r.height}}
+function masked(ctx,img,m,x=0,y=0,w=img.width,h=img.height,alpha=1){let c=document.createElement('canvas');c.width=state.base.width;c.height=state.base.height;let q=c.getContext('2d');q.globalAlpha=alpha;q.drawImage(img,x,y,w,h);q.globalAlpha=1;q.globalCompositeOperation='destination-in';q.drawImage(m,0,0);ctx.drawImage(c,0,0)}
+function render(){if(!state.base)return;let w=state.base.width,h=state.base.height;v.width=w;v.height=h;v.style.width=w*state.zoom+'px';v.style.height=h*state.zoom+'px';v.style.transform=`translate(${state.px}px,${state.py}px)`;vc.clearRect(0,0,w,h);if(state.hold){vc.drawImage(state.base,0,0);return}
+if(state.diff&&state.ai){vc.drawImage(state.base,0,0);vc.save();vc.globalCompositeOperation='difference';vc.drawImage(state.ai,state.ox,state.oy,state.ai.width*state.scale,state.ai.height*state.scale);vc.restore();return}
+if(state.visible.bg)vc.drawImage(cc,0,0);if(state.visible.ai&&state.ai)masked(vc,state.ai,am,state.ox,state.oy,state.ai.width*state.scale,state.ai.height*state.scale,state.onion?.5:1);if(state.visible.base)masked(vc,state.base,bm);
+if(state.quick&&state.active!=='bg'){let m=state.active==='base'?bm:am,q=document.createElement('canvas');q.width=w;q.height=h;let x=q.getContext('2d');x.fillStyle=state.active==='base'?'rgba(59,130,246,.45)':'rgba(16,185,129,.45)';x.fillRect(0,0,w,h);x.globalCompositeOperation='destination-in';x.drawImage(m,0,0);vc.drawImage(q,0,0);}}
+function load(src,kind){let i=new Image();i.onload=()=>{state[kind]=i;$((kind==='base'?'base':'ai')+'Badge').textContent=`${i.width}x${i.height}`;if(kind==='base'){spaces(i.width,i.height);state.hist=[];state.hi=-1;save();$('emptyNotice').classList.add('hidden');$('btnExport').disabled=false;fit()}render()};i.src=src}
+function dd(card,k){card.addEventListener('dragover',e=>e.preventDefault());card.addEventListener('drop',e=>{e.preventDefault();read(e.dataTransfer.files[0],k)});card.querySelector('input').onchange=e=>read(e.target.files[0],k)}function read(f,k){if(!f)return;let r=new FileReader();r.onload=e=>load(e.target.result,k);r.readAsDataURL(f)}dd($('layerBase'),'base');dd($('layerAi'),'ai');
+vp.onmousedown=e=>{if(!state.base)return;let p=pos(e);if(state.tool==='eyedropper'){let X=Math.max(0,Math.min(v.width-1,Math.floor(p.x))),Y=Math.max(0,Math.min(v.height-1,Math.floor(p.y))),z=vc.getImageData(X,Y,1,1).data;state.color='#'+[z[0],z[1],z[2]].map(n=>n.toString(16).padStart(2,'0')).join('');$('bgColorPicker').value=state.color;hud('カラー取得 '+state.color);tool(state.prev);return}if(state.tool==='hand'||state.space||e.button===1){state.panning=true;state.sx=e.clientX-state.px;state.sy=e.clientY-state.py;return}if(state.tool==='move'){state.moving=true;state.sx=e.clientX;state.sy=e.clientY;return}state.drawing=true;state.lastX=p.x;state.lastY=p.y;dab(p.x,p.y);render()};
+window.onmousemove=e=>{if(['brush','spray','eraser'].includes(state.tool)){cursor.classList.remove('hidden');cursor.style.left=e.clientX+'px';cursor.style.top=e.clientY+'px';let z=state.size*state.zoom;cursor.style.width=z+'px';cursor.style.height=z+'px';inner.style.transform=`scale(${state.hard})`}else cursor.classList.add('hidden');if(state.panning){state.px=e.clientX-state.sx;state.py=e.clientY-state.sy;render()}else if(state.moving){state.ox+=Math.round((e.clientX-state.sx)/state.zoom);state.oy+=Math.round((e.clientY-state.sy)/state.zoom);state.sx=e.clientX;state.sy=e.clientY;moveUI();render()}else if(state.drawing){let p=pos(e);stroke(state.lastX,state.lastY,p.x,p.y);state.lastX=p.x;state.lastY=p.y;render()}};window.onmouseup=()=>{if(state.drawing){state.drawing=false;save()}state.panning=state.moving=false;if(state.hold){state.hold=false;render()}};
+function fit(){let r=vp.getBoundingClientRect();state.zoom=Math.min((r.width-40)/state.base.width,(r.height-40)/state.base.height,1);state.px=state.py=0;$('zoomPercent').textContent=Math.round(state.zoom*100)+'%';render()}function moveUI(){$('offsetXVal').textContent=state.ox;$('offsetYVal').textContent=state.oy;$('aiScaleVal').textContent=Math.round(state.scale*100)+'%';$('aiScaleSlider').value=state.scale*100}
+function zoomLabel(){$('zoomPercent').textContent=Math.round(state.zoom*100)+'%'}
+$('btnZoomFit').onclick=fit;$('btnZoom100').onclick=()=>{state.zoom=1;state.px=state.py=0;zoomLabel();render()};$('btnZoomIn').onclick=()=>{state.zoom=Math.min(10,state.zoom*1.25);zoomLabel();render()};$('btnZoomOut').onclick=()=>{state.zoom=Math.max(.1,state.zoom/1.25);zoomLabel();render()};
+vp.addEventListener('wheel',e=>{if(!state.base)return;e.preventDefault();state.zoom=Math.max(.1,Math.min(10,state.zoom*(e.deltaY<0?1.15:.85)));zoomLabel();render()},{passive:false});
+$('brushSizeSlider').oninput=e=>{state.size=+e.target.value;$('brushSizeVal').textContent=state.size+'px'};$('brushOpacitySlider').oninput=e=>{state.opacity=e.target.value/100;$('brushOpacityVal').textContent=e.target.value+'%'};$('brushHardnessSlider').oninput=e=>state.hard=e.target.value/100;$('bgColorPicker').value=state.color;$('bgColorPicker').oninput=e=>state.color=e.target.value;document.querySelectorAll('.preset-color').forEach(b=>b.onclick=()=>{$('bgColorPicker').value=state.color=b.dataset.color});
+$('aiScaleSlider').oninput=e=>{state.scale=e.target.value/100;moveUI();render()};$('btnFitAiToBase').onclick=()=>{if(state.base&&state.ai){state.scale=state.base.width/state.ai.width;state.ox=state.oy=0;moveUI();render()}};$('btnResetOffset').onclick=()=>{state.ox=state.oy=0;state.scale=1;moveUI();render()};
+$('chkQuickMask').onchange=e=>{state.quick=e.target.checked;render()};$('chkOnionSkin').onchange=e=>{state.onion=e.target.checked;render()};$('chkDifference').onchange=e=>{state.diff=e.target.checked;render()};
+$('btnClearLayer').onclick=()=>{state.active==='base'?opaque(bmc):state.active==='ai'?opaque(amc):ccc.clearRect(0,0,cc.width,cc.height);save();render()};$('btnHoldCompare').onmousedown=()=>{state.hold=true;render()};
+$('btnExport').onclick=()=>{let c=document.createElement('canvas');c.width=state.base.width;c.height=state.base.height;let x=c.getContext('2d');if(state.visible.bg)x.drawImage(cc,0,0);if(state.visible.ai&&state.ai)masked(x,state.ai,am,state.ox,state.oy,state.ai.width*state.scale,state.ai.height*state.scale);if(state.visible.base)masked(x,state.base,bm);c.toBlob(b=>{let a=document.createElement('a'),u=URL.createObjectURL(b);a.href=u;a.download=`seam_fix_v3.1_${Date.now()}.png`;a.click();URL.revokeObjectURL(u)},'image/png')};
+function sample(){let w=900,h=700,b=document.createElement('canvas'),a=document.createElement('canvas');b.width=a.width=w;b.height=a.height=h;let x=b.getContext('2d');x.fillStyle='#334155';x.fillRect(0,0,w,h);x.fillStyle='#f59e0b';x.beginPath();x.arc(540,350,130,0,7);x.fill();x=a.getContext('2d');x.fillStyle='#26364b';x.fillRect(0,0,w,h);x.fillStyle='#10b981';x.fillRect(420,220,260,260);load(b.toDataURL(),'base');load(a.toDataURL(),'ai')}$('btnLoadSample').onclick=$('btnQuickDemo').onclick=sample;
+window.onkeydown=e=>{if(e.target.tagName==='INPUT')return;let k=e.key.toLowerCase();if(/^[0-9]$/.test(k)){let v=k==='0'?100:parseInt(k)*10;$('brushOpacitySlider').value=v;state.opacity=v/100;$('brushOpacityVal').textContent=v+'%';hud('不透明度: '+v+'%')}if(k==='q')$('chkQuickMask').click();if(e.code==='Space'){e.preventDefault();state.space=true}if(k==='b')tool('brush');if(k==='e')tool('eraser');if(k==='s')tool('spray');if(k==='i')tool('eyedropper');if(k==='v')tool('move');if(k==='h')tool('hand');if(k==='['||k===']'){state.size=Math.max(1,Math.min(800,state.size+(k==='['?20:-20)));$('brushSizeSlider').value=state.size;$('brushSizeVal').textContent=state.size+'px'}if((e.ctrlKey||e.metaKey)&&k==='z'){e.preventDefault();e.shiftKey?$('btnRedo').click():$('btnUndo').click()}if((e.ctrlKey||e.metaKey)&&k==='y')$('btnRedo').click()};window.onkeyup=e=>{if(e.code==='Space')state.space=false};
+layer('base');tool('brush');buttons();moveUI();
+</script>
+</body>
+</html>
